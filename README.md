@@ -17,14 +17,18 @@ Zhijie Chen<sup>2</sup>&nbsp;
 
 <sup>1</sup> [Show Lab](https://sites.google.com/view/showlab/home?authuser=0), National University of Singapore&nbsp; <sup>2</sup> Bytedance&nbsp;
  
-[![arXiv](https://img.shields.io/badge/arXiv-<2408.12528>-<COLOR>.svg)](https://arxiv.org/abs/2408.12528) [![page](https://img.shields.io/badge/page-<Showo>-<COLOR>.svg)](https://showlab.github.io/Show-o/) [![slack badge](https://img.shields.io/badge/Discord-join-blueviolet?logo=discord&amp)](https://discord.gg/Z7xdzYDa) [![WeChat badge](https://img.shields.io/badge/微信-加入-green?logo=wechat&amp)](https://github.com/showlab/Show-o/blob/main/docs/wechat_0826.jpg) [![Hits](https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https%3A%2F%2Fgithub.com%2Fshowlab%2FShow-o&count_bg=%234DC621&title_bg=%23811AD2&icon=&icon_color=%23E7E7E7&title=hits&edge_flat=false)](https://hits.seeyoufarm.com)
+[![ArXiv](https://img.shields.io/badge/ArXiv-<2408.12528>-<COLOR>.svg)](https://arxiv.org/abs/2408.12528) [![Webpage](https://img.shields.io/badge/Webpage-Showo-<COLOR>.svg)](https://showlab.github.io/Show-o/) [![Demo](https://img.shields.io/badge/Demo-HuggingFace-<COLOR>.svg)](https://huggingface.co/spaces/showlab/Show-o) [![slack badge](https://img.shields.io/badge/Discord-join-blueviolet?logo=discord&amp)](https://discord.gg/p6k7XupM) [![WeChat badge](https://img.shields.io/badge/微信-加入-green?logo=wechat&amp)](https://github.com/showlab/Show-o/blob/main/docs/wechat_qa_3.jpg) [![Hits](https://hits.seeyoufarm.com/api/count/incr/badge.svg?url=https%3A%2F%2Fgithub.com%2Fshowlab%2FShow-o&count_bg=%234DC621&title_bg=%23811AD2&icon=&icon_color=%23E7E7E7&title=hits&edge_flat=false)](https://hits.seeyoufarm.com)
 
 </div>
 
 **News**
+* **[2024-09-12]** Arxiv paper updated to include preliminaries about discrete diffusion.
+* **[2024-09-03]** We deploy an online demo on [Hugging Face Space](https://huggingface.co/spaces/showlab/Show-o). 🤗 Have fun!
+* **[2024-09-02]** **We release the training code for pre-training and instruction tuning!** 🔥🔥
+* **[2024-09-01]** Add [FlexAttention implementation](https://github.com/showlab/Show-o/blob/main/training/omni_attention.py) for accleration. Thanks to [@Horace](https://github.com/Chillee) for providing examples.
 * **[2024-08-28]** We maintain a repo of [Awesome Unified Multimodal Models](https://github.com/showlab/Awesome-Unified-Multimodal-Models). If you are interested in unified models, star and watch it to get latest updates!
 * **[2024-08-27]** Add integration to Hugging Face! Thanks to @[NielsRogge](https://github.com/NielsRogge).
-* **[2024-08-26]** We build two community platforms to facilitate discussion, request and collaboration! Reach us with [Discord](https://discord.gg/Z7xdzYDa) and [WeChat](https://github.com/showlab/Show-o/blob/main/docs/wechat_0826.jpg)!
+* **[2024-08-26]** We build two community platforms to facilitate discussion, request and collaboration! Reach us with [Discord](https://discord.gg/p6k7XupM) and [WeChat](https://github.com/showlab/Show-o/blob/main/docs/wechat_qa_3.jpg)!
 * **[2024-08-23]** We release the inference code of Show-o (**1.3B**) for multimodal understanding and generation including image captioning, visual question answering (VQA), text-to-image generation, text-guided inpainting and extrapolation.
 
 ## What is the new about Show-o?
@@ -41,7 +45,7 @@ Below is an overview of **Show-o**. The input data, regardless of its modalities
 
 ## TODO
 - [X] Release the inference code.
-- [ ] Release the training code (in the coming weeks).
+- [X] Release the training code.
 - [ ] Scale up the model size (based on LLaMA3) and increase the number of training data.
 
 ## Hugging Face models
@@ -97,12 +101,79 @@ image_path=./inpainting_validation/alpine_lake.jpg
 ```
 <img src="docs/github_extrapolation.png" width="1000">
 
+## Training pipeline
+**Prepare your training data and change the data path in `configs/xx.yaml`.**
+
+Note that, our training process is based on `accelerate`. Please ensure to config your `accelerate` for distributed training. We provide config examples below for (distributed) training on a single GPU or multiple GPUs.
+```
+├── accelerate_configs/ 
+|   ├── multi_nodes (6x8 GPUs)
+|   |   ├—— ...
+|   ├── 1_gpu.yaml
+|   └── 8_gpu_deepspeed_zero2.yaml
+```
+Stage 1 - Pre-training on ImageNet-1K dataset. Change the data path to ImageNet-1K in `configs/showo_pretraining_stage1.yaml`. **Note that, we use the internal packages to process the RefinedWeb dataset, and you must manually comment the code part related to language modeling in `training/train.py` or write a new dataloder**.
+```
+accelerate launch --config_file path/to/your/accelerate_config --main_process_port=8888 training/train.py config=configs/showo_pretraining_stage1.yaml
+```
+Once trained, the `checkpoint` folder is structured as follows:
+```
+├── show-o-training-stage1/ 
+|   ├── ...
+|   ├── checkpoint-500000
+|   └── config.yaml
+```
+**A bit cumbersome.** Just create a new output folder (edited in the yaml config) for stage 2, copy the latest `checkpoint` of stage 1 to this folder, and rename it to `checkpoint-0`. It will be automatically resumed for next stage training. **Apply same procedures for the `resume` training in the following stages.**
+```
+├── show-o-training-stage2/ 
+|   └── checkpoint-0
+```
+Stage 2 - Pre-training on Image-Text dataset. The default dataloader is based on `WebDataset`. Change the data path in `configs/showo_pretraining_stage2.yaml`.
+```
+accelerate launch --config_file path/to/your/accelerate_config --main_process_port=8888 training/train.py config=configs/showo_pretraining_stage2.yaml
+```
+Stage 3 - Pre-training on High-quality Image-Text dataset. Change the data path in `configs/showo_pretraining_stage3.yaml`
+```
+accelerate launch --config_file path/to/your/accelerate_config --main_process_port=8888 training/train.py config=configs/showo_pretraining_stage3.yaml
+```
+[Option a] Stage 3 - Instruction tuning on LLaVA dataset (llava-pretrain). Change the data path in `llava/llava_data_vq_unified.py`.
+```
+accelerate launch --config_file path/to/your/accelerate_config --main_process_port=8888 training/train.py config=configs/showo_instruction_tuning_1.yaml
+```
+[Option a] Stage 3 - Instruction tuning on LLaVA dataset (llava-tuning).  Change the data path in `llava/llava_data_vq_unified.py`.
+```
+accelerate launch --config_file path/to/your/accelerate_config --main_process_port=8888 training/train.py config=configs/showo_instruction_tuning_2.yaml
+```
+[Option c] Stage 3 - Instruction tuning on LLaVA dataset (llava-pretrain) with CLIP-ViT. Change the data path in `llava/llava_pretrain_data.py`.
+```
+accelerate launch --config_file path/to/your/accelerate_config --main_process_port=8888 training/train_w_clip_vit.py config=configs/showo_instruction_tuning_1_w_clip_vit.yaml
+```
+[Option c] Stage 3 - Instruction tuning on LLaVA dataset (llava-tuning) with CLIP-ViT. Change the data path in `llava/llava_instuct_data.py`.
+```
+accelerate launch --config_file path/to/your/accelerate_config --main_process_port=8888 training/train_w_clip_vit.py config=configs/showo_instruction_tuning_2_w_clip_vit.yaml
+```
+
+### Request new features? Willing to contribute?
+We welcome your bravo new ideas and contributions! If you would like to see any new features in Show-o, or you want to contribute to this project, please fill in [this form](https://docs.google.com/forms/d/e/1FAIpQLSdBlfEWgC2sNBsczyxtzIDE9lJ726ALzyRVn19nc8hJ-ymi2Q/viewform?usp=sf_link)!
+
+**Pending Requested Features**
+- [ ] Mixed-modal generation
+- [ ] Support training on more datasets
+- [ ] Visual tokenizer training
+
+Find more at [Contributing and Roadmap](CONTRIBUTING_ROADMAP.md).
+
+<p align="center">
+<img src="docs/show-o-want-u.png" width="512">
+</p>
+
 ### Join Discussion
 Welcome to discuss with us and continuously improve the user experience of Show-o.
-Reach us with this [Discord channel](https://discord.gg/Z7xdzYDa) or the WeChat QR code below!
+Reach us with this [Discord channel](https://discord.gg/p6k7XupM) or the WeChat QR code below!
 <p align="center">
-<img src="docs/wechat_0826.jpg" width="256">
+<img src="docs/wechat_qa_3.jpg" width="256">
 </p>
+
 
 ### Citation
 To cite the paper and model, please use the below:
